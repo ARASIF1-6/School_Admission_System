@@ -3,9 +3,12 @@ using Microsoft.OpenApi.Models;
 using SchoolAdmission.Api.Data;
 using SchoolAdmission.Api.Services;
 
+// Automatically load .env file if present in current directory, parent directory, or app directory
+LoadDotEnv();
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Configure Kestrel to listen on port 8080 (or PORT env var)
+// Configure Kestrel to listen on port 8080 (or PORT env var / .env)
 var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
 builder.WebHost.ConfigureKestrel(options =>
 {
@@ -13,7 +16,7 @@ builder.WebHost.ConfigureKestrel(options =>
 });
 
 // Configure Database connection
-// Supports connection string from environment variable DATABASE_URL or ConnectionStrings:DefaultConnection
+// Supports connection string from environment variable (.env / DATABASE_CONNECTION_STRING / ConnectionStrings__DefaultConnection)
 var connectionString = Environment.GetEnvironmentVariable("DATABASE_CONNECTION_STRING")
     ?? Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection")
     ?? builder.Configuration.GetConnectionString("DefaultConnection")
@@ -138,6 +141,42 @@ app.Use(async (context, next) =>
 app.MapControllers();
 
 app.Run();
+
+// Helper method to load .env key-value pairs into environment
+static void LoadDotEnv()
+{
+    var searchPaths = new[]
+    {
+        Path.Combine(Directory.GetCurrentDirectory(), ".env"),
+        Path.Combine(Directory.GetCurrentDirectory(), "..", ".env"),
+        Path.Combine(AppContext.BaseDirectory, ".env"),
+        Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".env")
+    };
+
+    foreach (var path in searchPaths)
+    {
+        if (File.Exists(path))
+        {
+            foreach (var line in File.ReadAllLines(path))
+            {
+                var trimmed = line.Trim();
+                if (string.IsNullOrWhiteSpace(trimmed) || trimmed.StartsWith("#")) continue;
+
+                var separatorIndex = trimmed.IndexOf('=');
+                if (separatorIndex > 0)
+                {
+                    var key = trimmed[..separatorIndex].Trim();
+                    var value = trimmed[(separatorIndex + 1)..].Trim().Trim('"').Trim('\'');
+                    if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable(key)))
+                    {
+                        Environment.SetEnvironmentVariable(key, value);
+                    }
+                }
+            }
+            break;
+        }
+    }
+}
 
 // Needed for integration tests
 public partial class Program { }
