@@ -136,9 +136,7 @@ public class AdmissionService : IAdmissionService
                 await _db.Database.ExecuteSqlRawAsync("SELECT \"Id\" FROM \"Classes\" WHERE \"Id\" = {0} FOR UPDATE", classId);
             }
 
-            var classEntity = await _db.Classes
-                .Include(c => c.Holds)
-                .FirstOrDefaultAsync(c => c.Id == classId);
+            var classEntity = await _db.Classes.FirstOrDefaultAsync(c => c.Id == classId);
 
             if (classEntity == null)
             {
@@ -148,8 +146,9 @@ public class AdmissionService : IAdmissionService
 
             var now = DateTime.UtcNow;
 
-            // Rule: "একজন শিক্ষার্থী একটা class-এ একই সময়ে একটার বেশি active আবেদন বা নিশ্চিত ভর্তি রাখতে পারবে না"
-            var hasActiveOrConfirmed = classEntity.Holds.Any(h =>
+            // Rule 3: "একজন শিক্ষার্থী একটা class-এ একই সময়ে একটার বেশি active আবেদন বা নিশ্চিত ভর্তি রাখতে পারবে না"
+            var hasActiveOrConfirmed = await _db.Holds.AnyAsync(h =>
+                h.ClassId == classId &&
                 h.StudentId == studentId &&
                 (h.Status == HoldStatus.Confirmed ||
                  (h.Status == HoldStatus.Held && h.ExpiresAt > now)));
@@ -160,9 +159,9 @@ public class AdmissionService : IAdmissionService
                 return (false, 409, null, "Student already has an active hold or confirmed admission for this class");
             }
 
-            // Rule: "কোনো অবস্থাতেই একটা class-এ held + confirmed সংখ্যা totalSeats-এর বেশি হবে না"
-            var confirmedCount = classEntity.Holds.Count(h => h.Status == HoldStatus.Confirmed);
-            var activeHeldCount = classEntity.Holds.Count(h => h.Status == HoldStatus.Held && h.ExpiresAt > now);
+            // Rule 1: "কোনো অবস্থাতেই একটা class-এ held + confirmed সংখ্যা totalSeats-এর বেশি হবে না"
+            var confirmedCount = await _db.Holds.CountAsync(h => h.ClassId == classId && h.Status == HoldStatus.Confirmed);
+            var activeHeldCount = await _db.Holds.CountAsync(h => h.ClassId == classId && h.Status == HoldStatus.Held && h.ExpiresAt > now);
 
             if (confirmedCount + activeHeldCount >= classEntity.TotalSeats)
             {
@@ -250,13 +249,13 @@ public class AdmissionService : IAdmissionService
             return (false, 404, null, $"Hold with ID '{holdId}' not found");
         }
 
-        // Rule: "শুধু নিজের HELD আবেদন confirm করা যাবে"
+        // Rule 4: "শুধু নিজের HELD আবেদন confirm করা যাবে"
         if (hold.StudentId != studentId)
         {
             return (false, 403, null, "Cannot confirm a hold that does not belong to you");
         }
 
-        // Rule: "একই আবেদনে confirm একাধিকবার এলেও confirmedSeats একবারই বাড়বে" (Idempotency)
+        // Rule 5: "একই আবেদনে confirm একাধিকবার এলেও confirmedSeats একবারই বাড়বে" (Idempotency)
         if (hold.Status == HoldStatus.Confirmed)
         {
             return (true, 200, new HoldConfirmResponse
@@ -272,7 +271,7 @@ public class AdmissionService : IAdmissionService
         }
 
         var now = DateTime.UtcNow;
-        // Rule: "মেয়াদ না পেরোনো HELD আবেদন confirm করা যাবে"
+        // Rule 4: "মেয়াদ না পেরোনো HELD আবেদন confirm করা যাবে"
         if (hold.ExpiresAt <= now)
         {
             hold.Status = HoldStatus.Expired;
