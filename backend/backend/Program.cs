@@ -3,28 +3,31 @@ using Microsoft.OpenApi.Models;
 using SchoolAdmission.Api.Data;
 using SchoolAdmission.Api.Services;
 
-// Automatically load .env file if present in current directory, parent directory, or app directory
+// 1. Automatically load .env file if present in current directory, parent directory, or app directory
 LoadDotEnv();
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Configure Kestrel to listen on port 8080 (or PORT env var / .env)
+// 2. Configure Kestrel to listen on port 8080 (from .env or PORT env var)
 var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
 builder.WebHost.ConfigureKestrel(options =>
 {
     options.ListenAnyIP(int.Parse(port));
 });
 
-// Configure Database connection
-// Supports connection string from environment variable (.env / DATABASE_CONNECTION_STRING / ConnectionStrings__DefaultConnection)
-var connectionString = Environment.GetEnvironmentVariable("DATABASE_CONNECTION_STRING")
-    ?? Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection")
-    ?? builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? "Host=localhost;Port=5432;Database=school_admission;Username=postgres;Password=postgres";
+// 3. Resolve Database connection info directly from .env file:
+// Priority:
+// a) Explicit DATABASE_CONNECTION_STRING in .env
+// b) Individual DB variables in .env (DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD)
+// c) ConnectionStrings:DefaultConnection in appsettings / environment fallback
+var connectionString = GetDatabaseConnectionStringFromEnv(builder.Configuration);
+
+// Populate into builder configuration so EF Core and any consumers see the .env connection string
+builder.Configuration["ConnectionStrings:DefaultConnection"] = connectionString;
 
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
-    // If in test or specifically requested InMemory
+    // If testing or specifically requested InMemory
     if (connectionString.StartsWith("InMemory:", StringComparison.OrdinalIgnoreCase))
     {
         options.UseInMemoryDatabase(connectionString[9..]);
@@ -142,6 +145,41 @@ app.MapControllers();
 
 app.Run();
 
+// Method to get or construct Database Connection String from .env variables
+static string GetDatabaseConnectionStringFromEnv(IConfiguration configuration)
+{
+    // 1. Check full connection string from .env
+    var connStr = Environment.GetEnvironmentVariable("DATABASE_CONNECTION_STRING");
+    if (!string.IsNullOrWhiteSpace(connStr))
+    {
+        return connStr;
+    }
+
+    // 2. Check individual components from .env
+    var host = Environment.GetEnvironmentVariable("DB_HOST");
+    var port = Environment.GetEnvironmentVariable("DB_PORT") ?? "5432";
+    var database = Environment.GetEnvironmentVariable("DB_NAME");
+    var user = Environment.GetEnvironmentVariable("DB_USER");
+    var pass = Environment.GetEnvironmentVariable("DB_PASSWORD");
+
+    if (!string.IsNullOrWhiteSpace(host) && !string.IsNullOrWhiteSpace(database) && !string.IsNullOrWhiteSpace(user))
+    {
+        return $"Host={host};Port={port};Database={database};Username={user};Password={pass};Include Error Detail=true";
+    }
+
+    // 3. Fallback to ConnectionStrings__DefaultConnection or configuration
+    var fromConfig = Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection")
+        ?? configuration.GetConnectionString("DefaultConnection");
+
+    if (!string.IsNullOrWhiteSpace(fromConfig))
+    {
+        return fromConfig;
+    }
+
+    // 4. Default fallback
+    return "Host=localhost;Port=5432;Database=school_admission;Username=postgres;Password=postgres";
+}
+
 // Helper method to load .env key-value pairs into environment
 static void LoadDotEnv()
 {
@@ -150,7 +188,8 @@ static void LoadDotEnv()
         Path.Combine(Directory.GetCurrentDirectory(), ".env"),
         Path.Combine(Directory.GetCurrentDirectory(), "..", ".env"),
         Path.Combine(AppContext.BaseDirectory, ".env"),
-        Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".env")
+        Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".env"),
+        Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".env")
     };
 
     foreach (var path in searchPaths)
@@ -167,10 +206,8 @@ static void LoadDotEnv()
                 {
                     var key = trimmed[..separatorIndex].Trim();
                     var value = trimmed[(separatorIndex + 1)..].Trim().Trim('"').Trim('\'');
-                    if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable(key)))
-                    {
-                        Environment.SetEnvironmentVariable(key, value);
-                    }
+                    // Always load or override from .env
+                    Environment.SetEnvironmentVariable(key, value);
                 }
             }
             break;
