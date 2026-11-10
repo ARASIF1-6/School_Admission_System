@@ -656,7 +656,7 @@ export function App() {
 
       {/* Footer */}
       <footer className="admission-footer">
-        <p>School Admission System • .NET 8 Web API + PostgreSQL + React 18 + Docker</p>
+        <p>School Admission System •</p>
         <p className="tech-badge">Backend: <code>http://localhost:8080</code> • Base API & Automated Testing Ready</p>
       </footer>
     </div>
