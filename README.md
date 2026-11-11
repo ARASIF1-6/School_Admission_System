@@ -11,13 +11,13 @@ The system operates strictly on a **"first-come, first-served" (আগে আস
 No need to install .NET, Node.js, or PostgreSQL on your host machine. Simply run:
 
 ```bash
-docker compose up --build
+docker compose up
 ```
 
 This will automatically start:
 1. **PostgreSQL 16**: Port `5432` with a persistent Docker volume (`postgres_data`).
 2. **Backend (.NET 8 Web API)**: Running on `http://localhost:8080`.
-3. **Frontend (React 18 + Nginx)**: Running on `http://localhost:3000` (also mapped to `http://localhost:5173`).
+3. **Frontend (React 18+)**: Running on `http://localhost:3000` (also mapped to `http://localhost:5173`).
 
 ### 🌐 Frontend URLs:
 - **Primary URL**: [http://localhost:3000](http://localhost:3000)
